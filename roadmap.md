@@ -1,0 +1,34 @@
+# MariComp connected workspace
+- [x] Import three original OJ EUR-Lex editions and twelve focused articles/annexes as unverified records, with exact source wording and fingerprints.
+- [x] Add searchable regulation/article library with applicability guidance, evidence checklists, legal wording, edition dates and source links; amendments remain outside this initial scope.
+- [x] Test exclusion of unverified imports from assessments and verify signed-in library browsing, filters, source links and mobile layout; ten tests passed.
+- [x] Extend secure original-file registration and metadata to 2D images, GLB/glTF and CAD; preserve project/vessel/version authorization.
+- [x] Add format/status filters, byte progress, image/model previews, element selection and original-file version downloads; external-resource glTF requires conversion or a self-contained file.
+- [x] Test format validation, truthful processing states, private access and signed-in 2D/3D upload flows; GLB/glTF rendered, selected, rotated and zoomed, versions persisted and downloaded original bytes matched.
+- [x] Add page-by-page vision-assisted ship-design interpretation with structured source-linked elements and explicit observed/inferred provenance.
+- [x] Add engineer corrections and auditable verification without AI setting compliance or measured inferred dimensions.
+- [x] Test interpretation safeguards and organization/role access; browser-verify real vision output, engineer verification and correction persistence: 86 checks passed.
+- [x] Add page-level embedded text and LlamaParse OCR processing, tables/measurements, durable jobs, atomic provenance storage and engineer correction inspection.
+- [x] Preserve raw units and missing dimensions; corrections retain original text and extracted/OCR measurements remain unverified.
+- [x] Add private PDF metadata/categories, sequential version uploads and authorization-controlled audit-safe deletion; assessed documents remain protected.
+- [x] Add multi-page PDF preview, version history, file signature/25 MB validation, upload stages and processing states.
+- [x] Browser-verify PDF upload, preview, v1/v2 history, download/deletion, native extraction and scanned OCR corrections; run document and organization tests.
+- [x] Require authentication on all workspace pages; browser-verify sign-in, session persistence, logout/back protection and rejected missing recovery links.
+- [x] Add administrator membership management and organization-specific engineering/reviewer controls; browser-verify persisted membership, private upload/download and reviewer approval.
+- [x] Test all four roles, anonymous access, cross-organization isolation, suspension, identity spoofing, last-administrator protection and auditable reviews: 62 checks passed.
+- [ ] Verify signup confirmation email delivery and a complete emailed password-reset flow — requires a test inbox and usable recovery email; delivery remains unverified.
+- [x] Normalize all 15 requested tables; preserve legacy compatibility and backfill private organizations.
+- [x] Enforce four organization roles, composite relationship constraints and private document access.
+- [x] Verify backend constraints and roles: 29 tests passed; signed-in UI recheck unavailable because requesting user has no account.
+- [x] Real sign-in, registration, password recovery and profiles (email delivery remains unverified).
+- [x] Separate protected roles and owner-only project records.
+- [x] Private PDF uploads and authenticated downloads.
+- [x] Live project/document counts, clear demonstration-only assessment pages.
+- [x] Test permissions and verify saved project/upload flows: 10 tests passed and browser flow verified.
+## SINCE AI Challenge alignment
+- [x] Import ADA 2010 dimensional accessibility criteria (exact Access Board wording, UNVERIFIED until verified).
+- [ ] SOLAS II-2 / PVAG / class rules — blocked: official texts are licensed (IMO) or not published as final; need a licensed source to import exact wording.
+- [x] Quantitative engine: verified measurements vs clause thresholds → COMPLIANT / NON_COMPLIANT (with delta) / REQUIRES_REVIEW.
+- [x] Drawing highlights: element regions from interpretation, View on drawing in Findings.
+- [x] Downloadable PDF compliance dossier on Reports.
+- [ ] RCRV benchmark project — blocked: needs the challenge-provided RCRV drawings uploaded by the user.

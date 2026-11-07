@@ -1,0 +1,4 @@
+CREATE FUNCTION public.uncommitted_design_file(_name text) RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $$ SELECT NOT EXISTS(SELECT 1 FROM public.design_versions WHERE storage_path=_name) AND NOT EXISTS(SELECT 1 FROM public.design_documents WHERE storage_path=_name) $$;
+REVOKE ALL ON FUNCTION public.uncommitted_design_file(text) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.uncommitted_design_file(text) TO authenticated,service_role;
+ALTER POLICY design_file_uncommitted_read ON storage.objects USING(bucket_id='design-documents' AND split_part(name,'/',1)=auth.uid()::text AND public.storage_project_access(name,ARRAY['administrator','project_manager','engineer']::public.organization_role[]) AND public.uncommitted_design_file(name));

@@ -1,0 +1,132 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1794017777860,
+      "tag": "0000_private_engineering_workspace",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1794017947881,
+      "tag": "0001_restrict_role_function_grants",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794023793100,
+      "tag": "0002_normalized_organization_compliance_backend",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1794023824863,
+      "tag": "0003_atomic_project_creation_and_review_integrity",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794025474659,
+      "tag": "0004_secure_organization_member_management",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794026652050,
+      "tag": "0005_document_versions_metadata_and_archive",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794026668658,
+      "tag": "0006_archive_storage_read_boundary",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1794026787193,
+      "tag": "0007_new_document_registration_marker",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1794026922468,
+      "tag": "0008_traceable_document_extraction",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794027152044,
+      "tag": "0009_atomic_processing_results",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794027604296,
+      "tag": "0010_ship_design_interpretation",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1794027770909,
+      "tag": "0011_interpretation_review_safeguards",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1794028706631,
+      "tag": "0012_multi_format_design_files",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1794029452564,
+      "tag": "0013_eu_environmental_regulatory_library",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1794032853923,
+      "tag": "0014_rule_set_verification_and_assessment_engine",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1794034561143,
+      "tag": "0015_engineers_verify_rule_sets",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1794053269264,
+      "tag": "0016_quantitative_rule_engine_and_drawing_regions",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1794053468973,
+      "tag": "0017_dual_unit_threshold_comparison",
+      "breakpoints": true
+    }
+  ]
+}

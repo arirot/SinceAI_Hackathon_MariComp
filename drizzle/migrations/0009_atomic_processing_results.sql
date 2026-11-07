@@ -1,0 +1,12 @@
+CREATE FUNCTION public.complete_document_processing(_job_id uuid,_items jsonb,_provider_result jsonb DEFAULT NULL) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$ DECLARE job public.document_processing_jobs;item jsonb;BEGIN
+SELECT * INTO job FROM public.document_processing_jobs WHERE id=_job_id FOR UPDATE;
+IF job.id IS NULL OR job.status<>'running' THEN RETURN;END IF;
+IF EXISTS(SELECT 1 FROM public.compliance_assessments WHERE design_version_id=job.design_version_id) THEN RAISE EXCEPTION 'Assessed versions cannot be processed';END IF;
+FOR item IN SELECT * FROM jsonb_array_elements(_items) LOOP
+INSERT INTO public.extracted_design_elements(project_id,document_id,design_version_id,element_type,name,value,unit,page_number,source_quote,extracted_text,extraction_method,confidence,source_location,status) VALUES(job.project_id,job.document_id,job.design_version_id,item->>'type','Page '||(item->>'page')||' '||(item->>'type'),coalesce(item->'raw','{}'::jsonb),item->>'unit',(item->>'page')::integer,item->>'text',item->>'text',item->>'method',(item->>'confidence')::numeric,nullif(item->'location','null'::jsonb),'unverified');
+END LOOP;
+UPDATE public.design_versions SET status='ready',processing_metadata=jsonb_build_object('job_id',job.id,'page_count',jsonb_array_length(job.page_metadata)),processing_error=NULL WHERE id=job.design_version_id;
+UPDATE public.document_processing_jobs SET status='completed',provider_result=_provider_result,updated_at=now() WHERE id=job.id;END $$;
+REVOKE ALL ON FUNCTION public.complete_document_processing(uuid,jsonb,jsonb) FROM PUBLIC,anon,authenticated;GRANT EXECUTE ON FUNCTION public.complete_document_processing(uuid,jsonb,jsonb) TO service_role;
+CREATE FUNCTION public.active_processing_archive_guard() RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$ BEGIN IF NEW.deleted_at IS NOT NULL AND OLD.deleted_at IS NULL AND EXISTS(SELECT 1 FROM public.document_processing_jobs WHERE document_id=NEW.id AND status IN ('queued','running')) THEN RAISE EXCEPTION 'Wait for document processing before deletion';END IF;RETURN NEW;END $$;
+CREATE TRIGGER active_processing_archive_guard BEFORE UPDATE ON public.design_documents FOR EACH ROW EXECUTE FUNCTION public.active_processing_archive_guard();

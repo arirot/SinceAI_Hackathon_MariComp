@@ -1,0 +1,30 @@
+ALTER TABLE public.design_documents ADD COLUMN file_format text NOT NULL DEFAULT 'pdf', ADD COLUMN vessel_id uuid REFERENCES public.vessels(id);
+ALTER TABLE public.design_versions ADD COLUMN file_format text NOT NULL DEFAULT 'pdf', ADD COLUMN vessel_id uuid REFERENCES public.vessels(id);
+UPDATE public.design_documents d SET vessel_id=p.vessel_id FROM public.projects p WHERE p.id=d.project_id;
+UPDATE public.design_versions v SET vessel_id=p.vessel_id FROM public.projects p WHERE p.id=v.project_id;
+ALTER TABLE public.design_documents DROP CONSTRAINT document_category;
+ALTER TABLE public.design_documents ADD CONSTRAINT document_category CHECK(category IN ('engineering_drawing','general_arrangement','technical_specification','engineering_report','supporting_document','material_declaration','equipment_specification','certificate'));
+ALTER TABLE public.design_versions DROP CONSTRAINT version_pdf_mime;
+ALTER TABLE public.design_versions ADD CONSTRAINT version_file_mime CHECK(mime_type IN ('application/pdf','image/png','image/jpeg','model/gltf-binary','model/gltf+json','application/octet-stream'));
+CREATE OR REPLACE FUNCTION public.design_file_vessel_guard() RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$ DECLARE vessel uuid; BEGIN SELECT vessel_id INTO vessel FROM public.projects WHERE id=NEW.project_id; IF NEW.vessel_id IS NOT NULL AND NEW.vessel_id<>vessel THEN RAISE EXCEPTION 'File vessel must match project vessel'; END IF; NEW.vessel_id:=vessel; RETURN NEW; END $$;
+CREATE TRIGGER design_document_vessel BEFORE INSERT OR UPDATE ON public.design_documents FOR EACH ROW EXECUTE FUNCTION public.design_file_vessel_guard();
+CREATE TRIGGER design_version_vessel BEFORE INSERT OR UPDATE ON public.design_versions FOR EACH ROW EXECUTE FUNCTION public.design_file_vessel_guard();
+CREATE OR REPLACE FUNCTION public.initial_design_version() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$ BEGIN INSERT INTO public.design_versions(project_id,document_id,revision,storage_path,created_by,original_filename,size_bytes,file_format,mime_type,vessel_id) VALUES(NEW.project_id,NEW.id,NEW.revision,NEW.storage_path,NEW.user_id,NEW.title,CASE WHEN NEW.size_bytes BETWEEN 1 AND 26214400 THEN NEW.size_bytes ELSE NULL END,NEW.file_format,CASE NEW.file_format WHEN 'pdf' THEN 'application/pdf' WHEN 'png' THEN 'image/png' WHEN 'jpg' THEN 'image/jpeg' WHEN 'jpeg' THEN 'image/jpeg' WHEN 'glb' THEN 'model/gltf-binary' WHEN 'gltf' THEN 'model/gltf+json' ELSE 'application/octet-stream' END,NEW.vessel_id);RETURN NEW;END $$;
+CREATE OR REPLACE FUNCTION public.register_design_asset(_project_id uuid,_document_id uuid,_filename text,_path text,_size bigint,_revision text,_category text,_sha256 text,_format text,_mime text) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$ DECLARE doc public.design_documents; doc_id uuid; next_version integer; expected_mime text; BEGIN
+IF auth.uid() IS NULL OR NOT public.project_access(_project_id,ARRAY['administrator','project_manager','engineer']::public.organization_role[]) THEN RAISE EXCEPTION 'Engineering access required' USING ERRCODE='42501';END IF;
+expected_mime:=CASE _format WHEN 'pdf' THEN 'application/pdf' WHEN 'png' THEN 'image/png' WHEN 'jpg' THEN 'image/jpeg' WHEN 'jpeg' THEN 'image/jpeg' WHEN 'glb' THEN 'model/gltf-binary' WHEN 'gltf' THEN 'model/gltf+json' ELSE 'application/octet-stream' END;
+IF _format IS NULL OR _format NOT IN ('pdf','png','jpg','jpeg','glb','gltf','step','stp','iges','igs','stl','obj','fbx','dwg','dxf','3dm','ifc','ply') OR _mime IS DISTINCT FROM expected_mime OR _size IS NULL OR _size NOT BETWEEN 1 AND 26214400 OR _filename IS NULL OR length(trim(_filename)) NOT BETWEEN 1 AND 255 OR lower(_filename) NOT LIKE '%.'||_format OR _revision IS NULL OR length(trim(_revision)) NOT BETWEEN 1 AND 40 OR _category IS NULL OR _category NOT IN ('engineering_drawing','general_arrangement','technical_specification','engineering_report','supporting_document','material_declaration','equipment_specification','certificate') OR _sha256 IS NULL OR _sha256 !~ '^[a-f0-9]{64}$' THEN RAISE EXCEPTION 'Invalid design file metadata';END IF;
+IF split_part(_path,'/',1)<>auth.uid()::text OR split_part(_path,'/',2)<>_project_id::text OR _path NOT LIKE '%.'||_format THEN RAISE EXCEPTION 'Invalid project file path';END IF;
+IF NOT EXISTS(SELECT 1 FROM storage.objects WHERE bucket_id='design-documents' AND name=_path AND (metadata->>'size')::bigint=_size AND metadata->>'mimetype'=_mime) THEN RAISE EXCEPTION 'Uploaded file not found or metadata mismatch';END IF;
+IF _document_id IS NULL OR _document_id='00000000-0000-0000-0000-000000000000'::uuid THEN
+INSERT INTO public.design_documents(project_id,user_id,title,storage_path,size_bytes,revision,category,file_format) VALUES(_project_id,auth.uid(),_filename,_path,_size,_revision,_category,_format) RETURNING id INTO doc_id;
+UPDATE public.design_versions SET content_sha256=_sha256 WHERE document_id=doc_id AND version_number=1;
+ELSE
+SELECT * INTO doc FROM public.design_documents WHERE id=_document_id FOR UPDATE;
+IF doc.id IS NULL OR doc.project_id<>_project_id OR doc.deleted_at IS NOT NULL THEN RAISE EXCEPTION 'Active project document required';END IF;
+SELECT coalesce(max(version_number),0)+1 INTO next_version FROM public.design_versions WHERE document_id=doc.id;
+INSERT INTO public.design_versions(project_id,document_id,version_number,revision,storage_path,created_by,original_filename,size_bytes,content_sha256,file_format,mime_type) VALUES(_project_id,doc.id,next_version,_revision,_path,auth.uid(),_filename,_size,_sha256,_format,_mime);
+UPDATE public.design_documents SET revision=_revision,storage_path=_path,size_bytes=_size,status='uploaded',file_format=_format WHERE id=doc.id;doc_id:=doc.id;
+END IF; RETURN doc_id; END $$;
+REVOKE ALL ON FUNCTION public.register_design_asset(uuid,uuid,text,text,bigint,text,text,text,text,text) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.register_design_asset(uuid,uuid,text,text,bigint,text,text,text,text,text) TO authenticated;

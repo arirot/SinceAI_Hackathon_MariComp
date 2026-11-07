@@ -1,0 +1,23 @@
+import {createServerFn} from '@tanstack/react-start';
+import {z} from 'zod';
+import {requireSupabaseAuth} from '@/integrations/supabase/auth-middleware';
+export const interpretDesignPage=createServerFn({method:'POST'}).middleware([requireSupabaseAuth]).inputValidator(z.object({versionId:z.string().uuid(),page:z.number().int().positive(),resume:z.boolean().default(false)})).handler(async({data,context})=>{
+ const version=await context.supabase.from('design_versions').select('*').eq('id',data.versionId).single();if(!version.data)throw new Error('Document version is not accessible.');const v=version.data;
+ if(v.mime_type!=='application/pdf')throw new Error('Conversion or specialised processing required. Drawing interpretation currently supports PDF pages only.');
+ const permission=await context.supabase.rpc('project_access',{_project_id:v.project_id,_roles:['administrator','project_manager','engineer']});if(!permission.data)throw new Error('Engineering membership required.');
+ const assessed=await context.supabase.from('compliance_assessments').select('id').eq('design_version_id',v.id).limit(1);if(assessed.error||assessed.data?.length)throw new Error('Assessed versions cannot be interpreted. Upload a new version.');
+ const {supabaseAdmin:admin}=await import('@/integrations/supabase/client.server');
+ const access=await admin.from('ai_interpretation_access').select('*').eq('id','ship-design').maybeSingle();if(access.error)throw new Error('AI access could not be checked.');if(access.data&&!data.resume)return{error:access.data.error_message,status:access.data.status_code};
+ if(access.data&&data.resume){const owner=await context.supabase.rpc('project_access',{_project_id:v.project_id,_roles:['administrator']});if(access.data.status_code===402&&!owner.data)return{error:'An organization administrator must restore AI credit access before resuming.',status:402};}
+ const existing=await context.supabase.from('design_interpretations').select('id').eq('design_version_id',v.id).eq('page_number',data.page);if(existing.data?.length)return{count:existing.data.length};
+ const file=await context.supabase.storage.from('design-documents').download(v.storage_path);if(file.error||!file.data)throw new Error('Private drawing could not be opened.');
+ const {PDFDocument}=await import('pdf-lib');const source=await PDFDocument.load(await file.data.arrayBuffer());if(data.page>source.getPageCount())throw new Error('Page does not exist.');const single=await PDFDocument.create();const copied=await single.copyPages(source,[data.page-1]);for(const sheet of copied)single.addPage(sheet);const bytes=await single.save();
+ const created=await admin.from('design_interpretation_runs').insert({project_id:v.project_id,document_id:v.document_id,design_version_id:v.id,page_number:data.page,requested_by:context.userId,model:'openai/gpt-6-astra'}).select('id').single();if(!created.data)throw new Error('This page already has an active interpretation.');const run=created.data;
+ try{const key=process.env['LOVABLE_API_KEY'];if(!key)throw new Error('AI interpretation is not configured.');const {interpretDrawing}=await import('./interpretation.server');const result=await interpretDrawing(bytes,v.original_filename??'drawing.pdf',data.page,key);
+ const rows=result.elements.map(element=>({...element,page_number:data.page,run_id:run.id,project_id:v.project_id,document_id:v.document_id,design_version_id:v.id,original_element:JSON.parse(JSON.stringify(element))}));if(rows.length){const saved=await admin.from('design_interpretations').insert(rows);if(saved.error)throw new Error('Interpretation could not be saved.');}
+ await admin.from('design_interpretation_runs').update({status:'completed',run_id:result.runId}).eq('id',run.id);if(access.data)await admin.from('ai_interpretation_access').delete().eq('id','ship-design');return{count:rows.length};
+ }catch(error){const e=error as {statusCode?:number;responseBody?:string;message?:string};const status=e.statusCode??500;let message=e.message??'Drawing interpretation failed.';try{const body=JSON.parse(e.responseBody??'{}');message=body.message??body.error?.message??message;}catch{/* retain safe error */}
+ await admin.from('design_interpretation_runs').update({status:status===403?'denied':'failed',error_message:message}).eq('id',run.id);
+ if(status===402||status===403)await admin.from('ai_interpretation_access').upsert({id:'ship-design',error_message:message,status_code:status});return{error:message,status};
+ }
+});

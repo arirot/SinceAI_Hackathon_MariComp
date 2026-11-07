@@ -1,0 +1,37 @@
+ALTER TABLE public.design_documents ADD COLUMN category text NOT NULL DEFAULT 'supporting_document', ADD COLUMN deleted_at timestamptz, ADD COLUMN deleted_by uuid REFERENCES public.profiles(id);
+ALTER TABLE public.design_documents ADD CONSTRAINT document_category CHECK(category IN ('engineering_drawing','general_arrangement','technical_specification','engineering_report','supporting_document'));
+ALTER TABLE public.design_versions ADD COLUMN original_filename text, ADD COLUMN mime_type text NOT NULL DEFAULT 'application/pdf', ADD COLUMN size_bytes bigint, ADD COLUMN processing_error text, ADD COLUMN processing_metadata jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE public.design_versions ADD CONSTRAINT version_pdf_mime CHECK(mime_type='application/pdf'), ADD CONSTRAINT version_file_size CHECK(size_bytes IS NULL OR size_bytes BETWEEN 1 AND 26214400);
+UPDATE public.design_versions v SET original_filename=d.title,size_bytes=CASE WHEN d.size_bytes BETWEEN 1 AND 26214400 THEN d.size_bytes ELSE NULL END FROM public.design_documents d WHERE d.id=v.document_id;
+CREATE OR REPLACE FUNCTION public.initial_design_version() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$ BEGIN INSERT INTO public.design_versions(project_id,document_id,revision,storage_path,created_by,original_filename,size_bytes) VALUES(NEW.project_id,NEW.id,NEW.revision,NEW.storage_path,NEW.user_id,NEW.title,CASE WHEN NEW.size_bytes BETWEEN 1 AND 26214400 THEN NEW.size_bytes ELSE NULL END);RETURN NEW;END $$;
+CREATE OR REPLACE FUNCTION public.register_design_file(_project_id uuid,_document_id uuid,_filename text,_path text,_size bigint,_revision text,_category text,_sha256 text) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$ DECLARE doc public.design_documents;doc_id uuid;next_version integer; BEGIN
+IF auth.uid() IS NULL OR NOT public.project_access(_project_id,ARRAY['administrator','project_manager','engineer']::public.organization_role[]) THEN RAISE EXCEPTION 'Engineering access required' USING ERRCODE='42501';END IF;
+IF _size IS NULL OR _size NOT BETWEEN 1 AND 26214400 OR _filename IS NULL OR length(trim(_filename)) NOT BETWEEN 1 AND 255 OR lower(_filename) NOT LIKE '%.pdf' OR _revision IS NULL OR length(trim(_revision)) NOT BETWEEN 1 AND 40 OR _category IS NULL OR _category NOT IN ('engineering_drawing','general_arrangement','technical_specification','engineering_report','supporting_document') OR _sha256 IS NULL OR _sha256 !~ '^[a-f0-9]{64}$' THEN RAISE EXCEPTION 'Invalid PDF metadata';END IF;
+IF split_part(_path,'/',1)<>auth.uid()::text OR split_part(_path,'/',2)<>_project_id::text OR _path NOT LIKE '%.pdf' THEN RAISE EXCEPTION 'Invalid project file path';END IF;
+IF NOT EXISTS(SELECT 1 FROM storage.objects WHERE bucket_id='design-documents' AND name=_path AND (metadata->>'size')::bigint=_size AND metadata->>'mimetype'='application/pdf') THEN RAISE EXCEPTION 'Uploaded PDF not found or metadata mismatch';END IF;
+IF _document_id IS NULL THEN
+INSERT INTO public.design_documents(project_id,user_id,title,storage_path,size_bytes,revision,category) VALUES(_project_id,auth.uid(),_filename,_path,_size,_revision,_category) RETURNING id INTO doc_id;
+UPDATE public.design_versions SET content_sha256=_sha256 WHERE document_id=doc_id AND version_number=1;
+ELSE
+SELECT * INTO doc FROM public.design_documents WHERE id=_document_id FOR UPDATE;
+IF doc.id IS NULL OR doc.project_id<>_project_id OR doc.deleted_at IS NOT NULL THEN RAISE EXCEPTION 'Active project document required';END IF;
+SELECT coalesce(max(version_number),0)+1 INTO next_version FROM public.design_versions WHERE document_id=doc.id;
+INSERT INTO public.design_versions(project_id,document_id,version_number,revision,storage_path,created_by,original_filename,size_bytes,content_sha256) VALUES(_project_id,doc.id,next_version,_revision,_path,auth.uid(),_filename,_size,_sha256);
+UPDATE public.design_documents SET revision=_revision,storage_path=_path,size_bytes=_size,status='uploaded' WHERE id=doc.id;doc_id=doc.id;
+END IF;RETURN doc_id;END $$;
+REVOKE ALL ON FUNCTION public.register_design_file(uuid,uuid,text,text,bigint,text,text,text) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.register_design_file(uuid,uuid,text,text,bigint,text,text,text) TO authenticated,service_role;
+CREATE OR REPLACE FUNCTION public.archive_design_document(_document_id uuid) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$ DECLARE doc public.design_documents;BEGIN
+SELECT * INTO doc FROM public.design_documents WHERE id=_document_id FOR UPDATE;
+IF doc.id IS NULL OR auth.uid() IS NULL OR NOT (public.project_access(doc.project_id,ARRAY['administrator','project_manager']::public.organization_role[]) OR (doc.user_id=auth.uid() AND public.project_access(doc.project_id,ARRAY['engineer']::public.organization_role[]))) THEN RAISE EXCEPTION 'Document deletion not authorized' USING ERRCODE='42501';END IF;
+IF EXISTS(SELECT 1 FROM public.compliance_assessments a JOIN public.design_versions v ON v.id=a.design_version_id WHERE v.document_id=doc.id) THEN RAISE EXCEPTION 'Assessed documents must remain available for audit';END IF;
+UPDATE public.design_documents SET deleted_at=now(),deleted_by=auth.uid(),status='archived' WHERE id=doc.id;END $$;
+REVOKE ALL ON FUNCTION public.archive_design_document(uuid) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.archive_design_document(uuid) TO authenticated,service_role;
+ALTER POLICY document_read ON public.design_documents USING(deleted_at IS NULL AND public.project_access(project_id));
+ALTER POLICY version_read ON public.design_versions USING(public.project_access(project_id) AND EXISTS(SELECT 1 FROM public.design_documents d WHERE d.id=document_id AND d.deleted_at IS NULL));
+ALTER POLICY version_insert ON public.design_versions WITH CHECK(created_by=auth.uid() AND public.project_access(project_id,ARRAY['administrator','project_manager','engineer']::public.organization_role[]) AND split_part(storage_path,'/',1)=auth.uid()::text AND split_part(storage_path,'/',2)=project_id::text AND EXISTS(SELECT 1 FROM public.design_documents d WHERE d.id=document_id AND d.project_id=project_id AND d.deleted_at IS NULL));
+ALTER POLICY design_file_read ON storage.objects USING(bucket_id='design-documents' AND public.storage_project_access(name) AND EXISTS(SELECT 1 FROM public.design_versions v JOIN public.design_documents d ON d.id=v.document_id WHERE v.storage_path=name AND d.deleted_at IS NULL));
+CREATE POLICY design_file_uncommitted_read ON storage.objects FOR SELECT TO authenticated USING(bucket_id='design-documents' AND split_part(name,'/',1)=auth.uid()::text AND public.storage_project_access(name,ARRAY['administrator','project_manager','engineer']::public.organization_role[]) AND NOT EXISTS(SELECT 1 FROM public.design_versions v WHERE v.storage_path=name));
+COMMENT ON COLUMN public.design_versions.processing_metadata IS 'Reserved for subsequent OCR/extraction job identifiers, page counts and worker provenance; no processing runs on upload.';
+COMMENT ON FUNCTION public.archive_design_document(uuid) IS 'Audit-safe deletion: hide document and deny file access, preserve stored bytes; assessed documents cannot be archived.';
